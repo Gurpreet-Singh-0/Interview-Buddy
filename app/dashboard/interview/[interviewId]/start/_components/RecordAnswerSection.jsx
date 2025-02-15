@@ -1,0 +1,116 @@
+'use client';
+import React, { useEffect, useState } from 'react';
+import Webcam from 'react-webcam';
+import Image from 'next/image';
+import { Button } from '../../../../../../components/ui/button';
+import useSpeechToText from 'react-hook-speech-to-text';
+import { Mic } from 'lucide-react';
+import { toast } from "sonner";
+import { chatSession } from '../../../../../../utils/GeminiAIModel';
+
+const RecordAnswerSection = ({ mockInterviewQuestion, activeQuestionIndex }) => {
+    const [userAnswer, setUserAnswer] = useState('');
+    const {
+        error,
+        interimResult,
+        isRecording,
+        results,
+        startSpeechToText,
+        stopSpeechToText,
+    } = useSpeechToText({
+        continuous: true,
+        useLegacyResults: false
+    });
+
+    useEffect(() => {
+        if (results.length > 0) {
+            const newTranscript = results[results.length - 1]?.transcript || '';
+            setUserAnswer(prevAns => prevAns + ' ' + newTranscript);
+        }
+    }, [results]);
+
+    const handleSaveUserAnswer = async () => {
+        try {
+            if (isRecording) {
+                stopSpeechToText();
+                
+                if (userAnswer?.length < 10) {
+                    toast.error('Response too short. Please record again.');
+                    return;
+                }
+
+                if (!mockInterviewQuestion?.[activeQuestionIndex]?.question) {
+                    toast.error('Question not found. Please try again.');
+                    return;
+                }
+
+                const feedbackPrompt = `Question: ${mockInterviewQuestion[activeQuestionIndex].question}, User Answer: ${userAnswer}, Depends on question and user answer for given interview question please give us rating for answer and feedback as area of improvement if any in just 3 to 5 lines to JSON format with rating field and feedback field`;
+
+               
+                try {
+                    const result = await chatSession.sendMessage(feedbackPrompt);
+                    const mockJsonResp = result.response.text().trim()
+                        .replace(/^```json/, '')
+                        .replace(/```$/, '');
+
+                        console.log(mockJsonResp);
+                    
+                    const JsonFeedbackResp = JSON.parse(mockJsonResp);
+                    
+                    toast.success('Answer saved successfully!');
+                } catch (error) {
+                    console.error('Error processing answer:', error);
+                    toast.error('Error saving answer. Please try again.');
+                }
+            } else {
+                startSpeechToText();
+            }
+        } catch (error) {
+            console.error('Error in handleSaveUserAnswer:', error);
+            toast.error('An error occurred. Please try again.');
+        }
+    };
+
+    const handleShowAnswer = () => {
+        toast.info(userAnswer || 'No answer recorded yet');
+    };
+
+    return (
+        <div className="items-center justify-center flex flex-col">
+            <div className="flex flex-col justify-center items-center bg-black rounded-lg p-5 my-20 relative">
+                <Image 
+                    src="/webcam.png" 
+                    width={200} 
+                    height={200}
+                    alt="webcam placeholder"
+                    className="absolute z-0"
+                />
+                <Webcam
+                    mirrored={true}
+                    className="z-10 w-full h-[300px]"
+                />
+            </div>
+            
+            <Button 
+                variant="outline" 
+                className="my-10"
+                onClick={handleSaveUserAnswer}
+            >
+                {isRecording ? (
+                    <span className="text-red-600 flex gap-2 items-center">
+                        <Mic />
+                        Stop Recording
+                    </span>
+                ) : (
+                    'Record Answer'
+                )}
+            </Button>
+            
+            <Button onClick={handleShowAnswer}>
+                Show User Answer
+            </Button>
+        </div>
+    );
+};
+
+export default RecordAnswerSection;
