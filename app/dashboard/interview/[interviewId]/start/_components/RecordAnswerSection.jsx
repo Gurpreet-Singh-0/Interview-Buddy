@@ -7,9 +7,16 @@ import useSpeechToText from 'react-hook-speech-to-text';
 import { Mic } from 'lucide-react';
 import { toast } from "sonner";
 import { chatSession } from '../../../../../../utils/GeminiAIModel';
+import { db } from '../../../../../../utils/db';
+import { UserAnswer } from '../../../../../../utils/schema';
+import { useUser } from '@clerk/clerk-react';
+import moment from 'moment';
 
-const RecordAnswerSection = ({ mockInterviewQuestion, activeQuestionIndex }) => {
+const RecordAnswerSection = ({ mockInterviewQuestion, activeQuestionIndex, interviewData }) => {
     const [userAnswer, setUserAnswer] = useState('');
+    const { user } = useUser();
+    const [loading, setLoading] = useState(false);
+
     const {
         error,
         interimResult,
@@ -17,6 +24,7 @@ const RecordAnswerSection = ({ mockInterviewQuestion, activeQuestionIndex }) => 
         results,
         startSpeechToText,
         stopSpeechToText,
+        setResults
     } = useSpeechToText({
         continuous: true,
         useLegacyResults: false
@@ -33,35 +41,7 @@ const RecordAnswerSection = ({ mockInterviewQuestion, activeQuestionIndex }) => 
         try {
             if (isRecording) {
                 stopSpeechToText();
-                
-                if (userAnswer?.length < 10) {
-                    toast.error('Response too short. Please record again.');
-                    return;
-                }
-
-                if (!mockInterviewQuestion?.[activeQuestionIndex]?.question) {
-                    toast.error('Question not found. Please try again.');
-                    return;
-                }
-
-                const feedbackPrompt = `Question: ${mockInterviewQuestion[activeQuestionIndex].question}, User Answer: ${userAnswer}, Depends on question and user answer for given interview question please give us rating for answer and feedback as area of improvement if any in just 3 to 5 lines to JSON format with rating field and feedback field`;
-
-               
-                try {
-                    const result = await chatSession.sendMessage(feedbackPrompt);
-                    const mockJsonResp = result.response.text().trim()
-                        .replace(/^```json/, '')
-                        .replace(/```$/, '');
-
-                        console.log(mockJsonResp);
-                    
-                    const JsonFeedbackResp = JSON.parse(mockJsonResp);
-                    
-                    toast.success('Answer saved successfully!');
-                } catch (error) {
-                    console.error('Error processing answer:', error);
-                    toast.error('Error saving answer. Please try again.');
-                }
+                await UpdateUserAnswer();  
             } else {
                 startSpeechToText();
             }
@@ -71,9 +51,77 @@ const RecordAnswerSection = ({ mockInterviewQuestion, activeQuestionIndex }) => 
         }
     };
 
-    const handleShowAnswer = () => {
-        toast.info(userAnswer || 'No answer recorded yet');
-    };
+    const UpdateUserAnswer = async () => {
+      console.log("User answer:", userAnswer);
+      setLoading(true);
+  
+      if (!mockInterviewQuestion || !mockInterviewQuestion[activeQuestionIndex]) {
+          toast.error("Question data not loaded yet.");
+          setLoading(false);
+          return;
+      }
+  
+      const correctAnswer = mockInterviewQuestion[activeQuestionIndex]?.answer;
+      console.log("Extracted Correct Answer:", correctAnswer);
+  
+      if (!correctAnswer) {
+          console.error("No correct answer found for this question.");
+          setLoading(false);
+          return;
+      }
+  
+      const feedbackPrompt = `Question: ${mockInterviewQuestion[activeQuestionIndex].question}, 
+      User Answer: ${userAnswer}, Based on the question and user's answer, provide a rating 
+      and feedback for improvement in JSON format with fields: rating (integer) and feedback (string). 
+      Example: {"rating": 4, "feedback": "Your response is good but could be more detailed."}`;
+  
+      try {
+          const result = await chatSession.sendMessage(feedbackPrompt);
+          let mockJsonResp = result.response.text().trim()
+              .replace(/^```json/, '')
+              .replace(/```$/, '');
+  
+          console.log("Raw response from AI:", mockJsonResp);
+  
+          const jsonStart = mockJsonResp.indexOf("{");
+          const jsonEnd = mockJsonResp.lastIndexOf("}");
+  
+          if (jsonStart === -1 || jsonEnd === -1) {
+              throw new Error("Invalid JSON format received from AI");
+          }
+  
+          mockJsonResp = mockJsonResp.substring(jsonStart, jsonEnd + 1);
+          const JsonFeedbackResp = JSON.parse(mockJsonResp);
+  
+          const resp = await db.insert(UserAnswer).values({
+              mockIdRef: interviewData?.mockId,
+              question: mockInterviewQuestion[activeQuestionIndex]?.question,
+              correctAnswer: correctAnswer,
+              userAns: userAnswer,
+              feedback: JsonFeedbackResp?.feedback,
+              rating: JsonFeedbackResp?.rating,
+              userEmail: user?.primaryEmailAddress?.emailAddress,
+              createdAt: moment().format("DD-MM-yyyy"),
+          });
+  
+          if (resp) {
+              toast.success("User answer recorded successfully!");
+              setUserAnswer("");
+              setResults([]);
+          }
+  
+          setResults([]);
+          setLoading(false);
+      } catch (error) {
+          console.error("Error processing answer:", error);
+          toast.error("Error saving answer. Please try again.");
+          setLoading(false);
+      }
+  };
+  
+  
+
+   
 
     return (
         <div className="items-center justify-center flex flex-col">
@@ -85,17 +133,10 @@ const RecordAnswerSection = ({ mockInterviewQuestion, activeQuestionIndex }) => 
                     alt="webcam placeholder"
                     className="absolute z-0"
                 />
-                <Webcam
-                    mirrored={true}
-                    className="z-10 w-full h-[300px]"
-                />
+                <Webcam mirrored className="z-10 w-full h-[300px]" />
             </div>
             
-            <Button 
-                variant="outline" 
-                className="my-10"
-                onClick={handleSaveUserAnswer}
-            >
+            <Button disabled={loading} variant="outline" className="my-10" onClick={handleSaveUserAnswer}>
                 {isRecording ? (
                     <span className="text-red-600 flex gap-2 items-center">
                         <Mic />
@@ -106,9 +147,7 @@ const RecordAnswerSection = ({ mockInterviewQuestion, activeQuestionIndex }) => 
                 )}
             </Button>
             
-            <Button onClick={handleShowAnswer}>
-                Show User Answer
-            </Button>
+         
         </div>
     );
 };

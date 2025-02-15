@@ -1,54 +1,71 @@
 'use client';
-import React,{useEffect, useState,use} from 'react'
+import React, { useEffect, useState } from 'react';
 import { db } from "../../../../../utils/db";
 import { eq } from "drizzle-orm";
 import { MockInterview } from "../../../../../utils/schema";
-import QuestionSection from './_components/QuestionSection'
-import RecordAnswerSection from './_components/RecordAnswerSection'
+import QuestionSection from './_components/QuestionSection';
+import RecordAnswerSection from './_components/RecordAnswerSection';
+import { Button } from '../../../../../components/ui/button';
+import Link from 'next/link';
 
-function page({params}) {
-    const resolvedParams = use(params);
-    const [interviewData, setInterviewData] = useState();
-    const [mockInterviewQuestion, setMockInterviewQuestion] = useState();
-    const[activeQuestionIndex, setActiveQuestionIndex] = useState(0);
-    const interviewId = resolvedParams?.interviewId;
+function Page({ params }) {
+    const { interviewId } = params;
+    const [interviewData, setInterviewData] = useState(null);
+    const [mockInterviewQuestion, setMockInterviewQuestion] = useState(null);
+    const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
+
     useEffect(() => {
-        GetInterviewDetails();
-      }, []);
-    
-      const GetInterviewDetails = async () => {
+        if (interviewId) {
+            GetInterviewDetails();
+        }
+    }, [interviewId]);
+
+    const GetInterviewDetails = async () => {
         try {
-       
-          
-          const result = await db
-            .select()
-            .from(MockInterview)
-            .where(eq(MockInterview.mockId, interviewId));
-            
-            const jsonMockResp= JSON.parse(result[0].jsonMockResp);
-            console.log(jsonMockResp);
-            setMockInterviewQuestion(jsonMockResp);
-            console.log(mockInterviewQuestion);
+            const result = await db
+                .select()
+                .from(MockInterview)
+                .where(eq(MockInterview.mockId, interviewId));
 
-            setInterviewData(result[0]);
-    
-         
+            if (result.length > 0) {
+                const jsonMockResp = typeof result[0].jsonMockResp === "string"
+                    ? JSON.parse(result[0].jsonMockResp)
+                    : result[0].jsonMockResp;
+
+                setMockInterviewQuestion(jsonMockResp);
+                setInterviewData(result[0]);
+            }
         } catch (error) {
-         console.log("Unable to fetch user details:",error)
-        } 
-      };
-  return (
-    <div>
-        <div className='grid grid-cols-1 md:grid-cols-2  gap-10'>
-            {/* Questions*/}
-            <QuestionSection mockInterviewQuestion={mockInterviewQuestion}
-            activeQuestionIndex={activeQuestionIndex}/>
+            console.error("Unable to fetch user details:", error);
+        }
+    };
 
-            <RecordAnswerSection mockInterviewQuestion={mockInterviewQuestion}
-            activeQuestionIndex={activeQuestionIndex}/>
+    return (
+        <div>
+            <div className='grid grid-cols-1 md:grid-cols-2 gap-10'>
+                {/* Questions */}
+                {mockInterviewQuestion && (
+                    <QuestionSection 
+                        mockInterviewQuestion={mockInterviewQuestion}
+                        activeQuestionIndex={activeQuestionIndex}
+                    />
+                )}
+
+                {interviewData && (
+                    <RecordAnswerSection 
+                        mockInterviewQuestion={mockInterviewQuestion}
+                        activeQuestionIndex={activeQuestionIndex}
+                        interviewData={interviewData}
+                    />
+                )}
+            </div>
+            <div className='flex justify-end gap-6'>
+           {activeQuestionIndex>0 &&   <Button onClick={()=>setActiveQuestionIndex(activeQuestionIndex-1)}>Previous Question</Button>}
+           {activeQuestionIndex !=mockInterviewQuestion?.length-1  && <Button onClick={()=>setActiveQuestionIndex(activeQuestionIndex+1)}>Next Question</Button>}
+              {activeQuestionIndex ==mockInterviewQuestion?.length-1 && <Link href={'/dashboard/interview/'+interviewData?.mockId+"/feedback"}><Button>End Interview</Button></Link>}
+            </div>
         </div>
-    </div>
-  )
+    );
 }
 
-export default page
+export default Page;
